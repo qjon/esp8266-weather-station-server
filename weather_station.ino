@@ -1,26 +1,25 @@
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
 #include "DHT.h"
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <ESP8266HTTPClient.h>
 
-#define LEAP_YEAR(Y)     ( (Y>0) && !(Y%4) && ( (Y%100) || !(Y%400) ) )
+#include "saved_data.h"
+#include "log_operations.h"
 
-#define DHTTYPE DHT22                     // Sensor type DHT11 or DHT22
+#define DHTTYPE DHT11                     // Sensor type DHT11 or DHT22
 #define DHTPin D4                         // PIN to which is connected sensor
 
-#define TIMES_PER_HOURE 2                 // number of times per hour to read data from sensor
+#define TIMES_PER_HOURE 4                 // number of times per hour to read data from sensor
 #define DATA_FILE "/data.csv"             // place to store data file
-#define SSID "YOUR_WIFI_ID"               // put your WIFI SSID  
-#define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
 
-#define PAGE_TITLE "PAGE_TITLE"           // put your page title - device name 
+#define SSID "YOUR_WIFI_SSID"             // put your WIFI SSID  
+#define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
 
 #define LOG_ITEMS 150                     // number of log data records
 
-// Initialize Http Server
-ESP8266WebServer server(80);
+#define ITEMS_TO_SYNC_PER_REQUEST 15      // max 19, because of max body size 1460 bytes
 
 // Initialize DHT sensor.
 DHT dht(DHTPin, DHTTYPE);
@@ -31,10 +30,8 @@ NTPClient timeClient(ntpUDP);
 
 float periodBetweenMeasure = 60 * 60 / TIMES_PER_HOURE;
 
-float Temperature;
-float Humidity;
-
-int lastSec = 0;
+const String host = "http://SERVER_ADRESS"; // put your server
+const String url = "YOUR_URL";              // put path to ypur server API
 
 void setup() {
   Serial.begin(115200);
@@ -59,33 +56,74 @@ void setup() {
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
 
-  server.on("/", handle_OnConnect);                         // display HTML page with current sensor data and save it do DATA file
-  server.on("/api", handle_OnApiCall);                      // return JSON with current sensor data and save it to DATA file
-  server.on("/api/file/clear", handle_OnApiClearDataFile);  // clear DATA file
-  server.on("/api/file/sync", handle_OnSync);               // return JSON with all data stored in DATA file
-  server.onNotFound(handle_NotFound);                       // error page
-
-  server.begin();
-  Serial.println("HTTP server started");
-
 
   timeClient.begin();
-  timeClient.setTimeOffset(3600);
 
   if (!SPIFFS.begin()) {
     Serial.println("Failed to mount file system");
     return;
   }
-}
 
-
-void loop() {
   while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
 
-  saveData();
 
-  server.handleClient();
+  // add new item
+  int sec = timeClient.getEpochTime();
 
+  String ip = WiFi.localIP().toString();
+
+  saveAndSendData(DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, dht, ip);
+
+
+  ESP.deepSleep(periodBetweenMeasure * 1e6);
+}
+
+
+void loop() {
+}
+
+void saveAndSendData(String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
+  String json;
+  
+  // Init Log operastions object
+  LogOperations list(dataFile, logItemsLength, itemsToSync);
+
+  // check if log file exist and create it if necessary
+  list.createLogFileIfNotExists();
+
+  // read log file
+  list.readFromFile();
+
+  float temp = dht.readTemperature(); // Gets the values of the temperature
+  float hum = dht.readHumidity(); // Gets the values of the humidity
+
+  list.addData(currentTimestamp, (String)temp, (String)hum);
+
+  // print data
+  list.printData();
+
+
+  // create JSON based on read data
+  json = list.toJSON(ip);
+
+  Serial.println(json);
+
+  HTTPClient http;
+  http.begin(host + url);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpCode = http.POST(json);
+
+  if (httpCode >= 200 && httpCode < 300) {
+    String payload = http.getString();
+    list.parseSyncResponse(payload);
+  } else {
+    Serial.println("Wrong response: " + (String)httpCode);
+  }
+  
+  list.saveFile();
+
+  http.end();
 }

@@ -7,9 +7,9 @@ This program is used to create weather station server based on _ESP8266 nodemcu 
 
 Main functionalities:
 
-- display HTML page with current sensor values
-- store some data from past in some data file
-- create API to get current and saved sensor data
+- get data from sensor
+- if possible send data to server, if not save in log file (sync in the future)
+- sleep for some time to save power
 
 ## Instalations
 
@@ -18,69 +18,48 @@ Main functionalities:
 - configure some data in _weather_station.ino_
 
   
-      #define DHTTYPE DHT22                     // Sensor type DHT11 or DHT22
-      #define DHTPin D4                         // PIN to which is connected sensor
+        #define DHTTYPE DHT22                     // Sensor type DHT11 or DHT22
+        #define DHTPin D4                         // PIN to which is connected sensor
 
-      #define TIMES_PER_HOURE 2                 // number of times per hour to read data from sensor
-      #define DATA_FILE "/data.csv"             // place to store data file
-      #define SSID "YOUR_WIFI_ID"               // put your WIFI SSID  
-      #define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
+        #define TIMES_PER_HOURE 2                 // number of times per hour to read data from sensor
+        #define DATA_FILE "/data.csv"             // place to store data file
+        #define SSID "YOUR_WIFI_ID"               // put your WIFI SSID  
+        #define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
 
-      #define PAGE_TITLE "PAGE_TITLE"           // put your page title - device name 
+        #define PAGE_TITLE "PAGE_TITLE"           // put your page title - device name 
 
-      #define LOG_ITEMS 150                     // number of log data records
+        #define LOG_ITEMS 150                     // number of log data records (max: 150)
+
+
+        const String host = "http://SERVER_ADRESS"; // put your server
+        const String url = "YOUR_URL";              // put path to ypur server API
       
 - upload program to your device
 
-## API 
+## Communication with server
 
-Each response from server is a JSON file. Also each response has _error_ property. If its value is 0 it means that response is ok any other value grater than 0 means that there is some problem.
+Each time when device is wake up it try to send data to server in such JSON format:
 
-### Get current data
 
-Request:
+        {"ip":"DEVICE_IP","data":[{"time":1585669406,"temp":"20.80","hum":"66.00"},{"time":1585669428,"temp":"21.00","hum":"61.00"}]}
 
-      GET /api
-      
-Response:
+Response for such request is:
 
-- data:
-    - humidity: current humidity value
-    - temperature: current temperature value
-    
-      
-Response example:
 
-      {"error":0,"data":{"humidity":54,"temperature":21.3}}
-      
+        [{"time":1585669406,"sync":true},{"time":1585669428,"sync":true}]
 
-### Get saved data to sync
-
-Request:
-
-      GET /api/file/sync
-
-Response:
-
-- data: 
-    - toSync: list of saved sensor data (timestamp|temperature|humidity)
-
-Response example:
-
-      {"error": 0, "data": {"toSync": ["1582905784|22.10|59.00", "1582907585|21.40|54.00"]}}
-      
-### Clear saved ddata file
-
-Request:
-
-      GET /api/file/clear
-
-Response example:
-
-      {"error": 0}
+Each item in response has timestamp value and sync value (bool). If sync value is _true_ then such record is not stored in log file, if it is _false_ record is stored and device will try send it once more next time.
       
 
 ## Change log
+### v2.0.0
+
+- remove API and HTTP server
+- save power - use deep sleep
+- read sensor data -> send do server (or save in file - sync in future) -> go deep sleep 
+- remember max 150 sensor data reads (if the log file is full oldest record is deleted and new one is added)
+- each time when device is sending data to server it try to send first 15 records saved in log file
+- fix: epochTime form NTP server sometimes return time from feature - now it is not a problem (such result is stored in log file but it is not parsed on server)
 
 ### v1.0.0
 
