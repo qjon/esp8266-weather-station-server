@@ -7,7 +7,7 @@ This program is used to create weather station server based on _ESP8266 nodemcu 
 
 Main functionalities:
 
-- get data from sensor
+- get data from sensor (possibility to use 2 sensor in the same time - one outside, one inside)
 - if possible send data to server, if not save in log file (sync in the future)
 - sleep for some time to save power
 
@@ -15,24 +15,28 @@ Main functionalities:
 
 - clone this repository
 - use Arduino IDE to open project
-- configure some data in _weather_station.ino_
-
+- create _configuration.h_ file based on _configuration_sample.h_
+- change configuration data in _donfiguration.h_ file
   
-        #define DHTTYPE DHT22                     // Sensor type DHT11 or DHT22
-        #define DHTPin D4                         // PIN to which is connected sensor
+        #define SENSOR_0_TYPE DHT11                           // Sensor 0 type DHT11 or DHT22
+        #define SENSOR_1_TYPE DHT22                           // Sensor 1 type DHT11 or DHT22
 
-        #define TIMES_PER_HOURE 2                 // number of times per hour to read data from sensor
-        #define DATA_FILE "/data.csv"             // place to store data file
-        #define SSID "YOUR_WIFI_ID"               // put your WIFI SSID  
-        #define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
+        #define SENSOR_0_PIN D4                               // Sensor 0 PIN
+        #define SENSOR_1_PIN D5                               // Sensor 1 PIN
 
-        #define PAGE_TITLE "PAGE_TITLE"           // put your page title - device name 
+        #define TIMES_PER_HOURE 240                           // number of times per hour to read data from sensor
 
-        #define LOG_ITEMS 150                     // number of log data records (max: 150)
+        #define SENSOR_0_DATA_FILE "/data.csv"                // log file name for sensor 0
+        #define SENSOR_1_DATA_FILE "/data22.csv"              // log file name for sensor 1
 
+        #define SSID "WIFI_SSID"                              // put your WIFI SSID  
+        #define PASSWORD "WIFI_PASSWORD"                      // put your WIFI password
 
-        const String host = "http://SERVER_ADRESS"; // put your server
-        const String url = "YOUR_URL";              // put path to ypur server API
+        #define LOG_ITEMS 150                                 // number of log data records
+
+        #define ITEMS_TO_SYNC_PER_REQUEST 15                  // max 15, because of max body size 1460 bytes
+
+        #define SYNC_URL "http://SERVER_NAME:PORT/SYNC_URL"   // put path to ypur server API
       
 - upload program to your device
 
@@ -41,7 +45,7 @@ Main functionalities:
 Each time when device is wake up it try to send data to server in such JSON format:
 
 
-        {"ip":"DEVICE_IP","data":[{"time":1585669406,"temp":"20.80","hum":"66.00"},{"time":1585669428,"temp":"21.00","hum":"61.00"}]}
+        {"ip":"DEVICE_IP","sensor": 0, "data":[{"time":1585669406,"temp":"20.80","hum":"66.00"},{"time":1585669428,"temp":"21.00","hum":"61.00"}]}
 
 Response for such request is:
 
@@ -52,6 +56,13 @@ Each item in response has timestamp value and sync value (bool). If sync value i
       
 
 ## Change log
+
+### v2.1.0
+
+- add possibility to connect second sensor
+- change communicatin with server - additional _sensor_ property is send
+- change configuration
+
 ### v2.0.0
 
 - remove API and HTTP server
