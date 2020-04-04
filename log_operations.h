@@ -19,7 +19,7 @@ class LogOperations {
     void readFromFile();
     void removeLogFile();
     void saveFile();
-    String toJSON(String ip);
+    String toJSON(String ip, int sensor);
 
   private:
     String _dataFileName;
@@ -130,13 +130,14 @@ void LogOperations::removeLogFile() {
   }
 }
 
-String LogOperations::toJSON(String ip) {
+String LogOperations::toJSON(String ip, int sensor) {
   String message;
-  const int capacity = JSON_OBJECT_SIZE(2) + JSON_ARRAY_SIZE(_itemsToSyncPerRequest) + _itemsToSyncPerRequest * JSON_OBJECT_SIZE(3) + 518;
+  const int capacity = JSON_OBJECT_SIZE(3) + JSON_ARRAY_SIZE(_itemsToSyncPerRequest) + _itemsToSyncPerRequest * JSON_OBJECT_SIZE(3) + 518;
 
   DynamicJsonDocument root(capacity);
 
   root["ip"] = ip;
+  root["sensor"] = sensor;
 
   JsonArray data = root.createNestedArray("data");
 

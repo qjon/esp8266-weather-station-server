@@ -7,22 +7,11 @@
 
 #include "saved_data.h"
 #include "log_operations.h"
-
-#define DHTTYPE DHT11                     // Sensor type DHT11 or DHT22
-#define DHTPin D4                         // PIN to which is connected sensor
-
-#define TIMES_PER_HOURE 4                 // number of times per hour to read data from sensor
-#define DATA_FILE "/data.csv"             // place to store data file
-
-#define SSID "YOUR_WIFI_SSID"             // put your WIFI SSID  
-#define PASSWORD "YOUR_WIFI_PASSWORD"     // put your WIFI password
-
-#define LOG_ITEMS 150                     // number of log data records
-
-#define ITEMS_TO_SYNC_PER_REQUEST 15      // max 19, because of max body size 1460 bytes
+#include "configuration.h"
 
 // Initialize DHT sensor.
-DHT dht(DHTPin, DHTTYPE);
+DHT sensorOne(SENSOR_0_PIN, SENSOR_0_TYPE);
+DHT sensorTwo(SENSOR_1_PIN, SENSOR_1_TYPE);
 
 // Initialize Time
 WiFiUDP ntpUDP;
@@ -30,15 +19,20 @@ NTPClient timeClient(ntpUDP);
 
 float periodBetweenMeasure = 60 * 60 / TIMES_PER_HOURE;
 
-const String host = "http://SERVER_ADRESS"; // put your server
-const String url = "YOUR_URL";              // put path to ypur server API
-
 void setup() {
   Serial.begin(115200);
 
-  pinMode(DHTPin, INPUT);
+  pinMode(SENSOR_0_PIN, INPUT);
 
-  dht.begin();
+  if (isSecondSensor()) {
+    pinMode(SENSOR_1_PIN, INPUT);
+  }
+
+  sensorOne.begin();
+
+  if (isSecondSensor()) {
+    sensorTwo.begin();
+  }
 
   Serial.println("Connecting to ");
   Serial.println(SSID);
@@ -56,7 +50,6 @@ void setup() {
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
 
-
   timeClient.begin();
 
   if (!SPIFFS.begin()) {
@@ -68,14 +61,16 @@ void setup() {
     timeClient.forceUpdate();
   }
 
-
   // add new item
   int sec = timeClient.getEpochTime();
 
   String ip = WiFi.localIP().toString();
 
-  saveAndSendData(DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, dht, ip);
+  saveAndSendData(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
 
+  if (isSecondSensor()) {
+    saveAndSendData(1, SENSOR_1_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorTwo, ip);
+  }
 
   ESP.deepSleep(periodBetweenMeasure * 1e6);
 }
@@ -84,9 +79,9 @@ void setup() {
 void loop() {
 }
 
-void saveAndSendData(String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
+void saveAndSendData(int sensor, String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
   String json;
-  
+
   // Init Log operastions object
   LogOperations list(dataFile, logItemsLength, itemsToSync);
 
@@ -106,12 +101,12 @@ void saveAndSendData(String dataFile, int logItemsLength, int itemsToSync, int c
 
 
   // create JSON based on read data
-  json = list.toJSON(ip);
+  json = list.toJSON(ip, sensor);
 
   Serial.println(json);
 
   HTTPClient http;
-  http.begin(host + url);
+  http.begin(SYNC_URL);
   http.addHeader("Content-Type", "application/json");
 
   int httpCode = http.POST(json);
@@ -122,8 +117,12 @@ void saveAndSendData(String dataFile, int logItemsLength, int itemsToSync, int c
   } else {
     Serial.println("Wrong response: " + (String)httpCode);
   }
-  
+
   list.saveFile();
 
   http.end();
+}
+
+bool isSecondSensor() {
+  return SENSOR_1_PIN != NULL;
 }
