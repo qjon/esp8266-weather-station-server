@@ -12,7 +12,7 @@ class LogOperations {
 
   public:
     LogOperations(String fileName, int listSize, int itemsToSyncPerRequest);
-    void addData(int time, String temp, String hum);
+    SavedData addData(int time, String temp, String hum);
     bool createLogFileIfNotExists();
     void parseSyncResponse(String response);
     void printData();
@@ -39,7 +39,7 @@ LogOperations::LogOperations(String fileName, int listSize, int itemsToSyncPerRe
   _readItemsFromFile = 0;
 }
 
-void LogOperations::addData(int time, String temp, String hum) {
+SavedData LogOperations::addData(int time, String temp, String hum) {
   SavedData s(time, temp, hum);
 
   if (_readItemsFromFile < _listLength) {
@@ -48,6 +48,8 @@ void LogOperations::addData(int time, String temp, String hum) {
     removeOldestDataItem();
     _list[_listLength - 1] = s;
   }
+
+  return s;
 }
 
 bool LogOperations::createLogFileIfNotExists() {

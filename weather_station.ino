@@ -4,6 +4,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266HTTPClient.h>
+#include <PubSubClient.h>
 
 #include "saved_data.h"
 #include "log_operations.h"
@@ -15,9 +16,12 @@ DHT sensorTwo(SENSOR_1_PIN, SENSOR_1_TYPE);
 
 // Initialize Time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP, "0.pl.pool.ntp.org");
 
 float periodBetweenMeasure = 60 * 60 / TIMES_PER_HOURE;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 void setup() {
   Serial.begin(115200);
@@ -49,6 +53,8 @@ void setup() {
   Serial.println("WiFi connected..!");
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
+  Serial.print("Got MAC: ");
+  Serial.println(WiFi.macAddress());
 
   timeClient.begin();
 
@@ -57,72 +63,75 @@ void setup() {
     return;
   }
 
+  Serial.println("before force");
+
   while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
 
-  // add new item
-  int sec = timeClient.getEpochTime();
-
-  String ip = WiFi.localIP().toString();
-
-  saveAndSendData(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
-
-  if (isSecondSensor()) {
-    saveAndSendData(1, SENSOR_1_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorTwo, ip);
-  }
-
-  ESP.deepSleep(periodBetweenMeasure * 1e6);
+  //
+  //  Dir dir = SPIFFS.openDir("/");
+  //  while (dir.next()) {
+  //    Serial.print(dir.fileName());
+  //    File f = dir.openFile("r");
+  //    Serial.println(f.size());
+  //  }
 }
 
 
 void loop() {
-}
 
-void saveAndSendData(int sensor, String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
-  String json;
+  // add new item
+  int sec = timeClient.getEpochTime();
 
-  // Init Log operastions object
-  LogOperations list(dataFile, logItemsLength, itemsToSync);
+  Serial.println("time: " + (String)sec);
 
-  // check if log file exist and create it if necessary
-  list.createLogFileIfNotExists();
+  String ip = WiFi.localIP().toString();
 
-  // read log file
-  list.readFromFile();
+  if (IS_MQTT_SYNC) {
 
-  float temp = dht.readTemperature(); // Gets the values of the temperature
-  float hum = dht.readHumidity(); // Gets the values of the humidity
+    client.setServer(MQTT_SERVER, MQTT_PORT);
+    client.setCallback(mqttCallback);
 
-  list.addData(currentTimestamp, (String)temp, (String)hum);
+    while (!client.connected()) {
+      Serial.println("Connecting to MQTT...");
+      if (client.connect("ESP8266Client", MQTT_USER, MQTT_PASS)) {
 
-  // print data
-  list.printData();
+        Serial.println("connected");
+
+      } else {
+        Serial.print("failed with state ");
+        Serial.print(client.state());
+        delay(2000);
+      }
+    }
+
+    client.loop();
+
+    client.publish(getDeviceTopic("INFO").c_str(), getMqttBonjureMessage().c_str());
+
+    String msg = saveAndGetDataMqtt(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
+    String topic = getDeviceTopic("SENSOR");
+
+    Serial.println(msg);
+
+    client.publish(topic.c_str(), msg.c_str());
 
 
-  // create JSON based on read data
-  json = list.toJSON(ip, sensor);
+    Serial.println("MQTT");
 
-  Serial.println(json);
+    delay(5000);
 
-  HTTPClient http;
-  http.begin(SYNC_URL);
-  http.addHeader("Content-Type", "application/json");
+    client.disconnect();
 
-  int httpCode = http.POST(json);
-
-  if (httpCode >= 200 && httpCode < 300) {
-    String payload = http.getString();
-    list.parseSyncResponse(payload);
   } else {
-    Serial.println("Wrong response: " + (String)httpCode);
+
+    saveAndSendData(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
+
+    if (isSecondSensor()) {
+      saveAndSendData(1, SENSOR_1_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorTwo, ip);
+    }
   }
 
-  list.saveFile();
-
-  http.end();
-}
-
-bool isSecondSensor() {
-  return SENSOR_1_PIN != NULL;
+  ESP.deepSleep(periodBetweenMeasure * 1e6);
 }

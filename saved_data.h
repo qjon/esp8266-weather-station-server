@@ -13,6 +13,7 @@ class SavedData {
     SavedData(String data);
     SavedData(int time, String temp, String hum);
     JsonObject toJson(JsonArray *arr);
+    String toMqttString(String ip, int sensor);
     String toString();
 };
 
@@ -48,6 +49,27 @@ JsonObject SavedData::toJson(JsonArray *arr) {
   obj["hum"] = humidity;
 
   return obj;
+}
+
+
+String SavedData::toMqttString(String uniqId, int sensor) {
+  String message;
+  const int capacity = 2 * JSON_OBJECT_SIZE(3) + 70;
+
+  DynamicJsonDocument root(capacity);
+
+  root["uniqId"] = uniqId;
+  root["sensor"] = sensor;
+
+  JsonObject data = root.createNestedObject("payload");
+
+  data["time"] = timestamp;
+  data["temp"] = temperature;
+  data["hum"] = humidity;
+
+  serializeJson(root, message);
+
+  return message;
 }
 
 String SavedData::toString() {
