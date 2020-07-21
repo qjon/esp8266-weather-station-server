@@ -8,6 +8,7 @@
 
 #include "saved_data.h"
 #include "log_operations.h"
+#include "data_transport.h"
 #include "configuration.h"
 
 // Initialize DHT sensor.
@@ -22,6 +23,10 @@ float periodBetweenMeasure = 60 * 60 / TIMES_PER_HOURE;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+int lastMqttSendTimestamp = 0;
+
+int waitCounter = 10;
 
 void setup() {
   Serial.begin(115200);
@@ -69,17 +74,14 @@ void setup() {
     timeClient.forceUpdate();
   }
 
-  //
+
   //  Dir dir = SPIFFS.openDir("/");
   //  while (dir.next()) {
   //    Serial.print(dir.fileName());
   //    File f = dir.openFile("r");
   //    Serial.println(f.size());
   //  }
-}
 
-
-void loop() {
 
   // add new item
   int sec = timeClient.getEpochTime();
@@ -88,50 +90,34 @@ void loop() {
 
   String ip = WiFi.localIP().toString();
 
-  if (IS_MQTT_SYNC) {
 
-    client.setServer(MQTT_SERVER, MQTT_PORT);
-    client.setCallback(mqttCallback);
+  // INIT values
 
-    while (!client.connected()) {
-      Serial.println("Connecting to MQTT...");
-      if (client.connect("ESP8266Client", MQTT_USER, MQTT_PASS)) {
+  float temp = sensorOne.readTemperature(); // Gets the values of the temperature
+  float hum = sensorOne.readHumidity(); // Gets the values of the humidity
 
-        Serial.println("connected");
+  SavedData sensorData(sec, (String)temp, (String)hum);
 
-      } else {
-        Serial.print("failed with state ");
-        Serial.print(client.state());
-        delay(2000);
-      }
-    }
+  bool isSend = false;
 
-    client.loop();
+  // #1 - get sensor data
 
-    client.publish(getDeviceTopic("INFO").c_str(), getMqttBonjureMessage().c_str());
-
-    String msg = saveAndGetDataMqtt(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
-    String topic = getDeviceTopic("SENSOR");
-
-    Serial.println(msg);
-
-    client.publish(topic.c_str(), msg.c_str());
+  String uniqId = getDeviceUniqId();
 
 
-    Serial.println("MQTT");
+  sendDataForSensor(uniqId, ip, 0, SENSOR_0_DATA_FILE, sensorData);
 
-    delay(5000);
-
-    client.disconnect();
-
-  } else {
-
-    saveAndSendData(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
-
-    if (isSecondSensor()) {
-      saveAndSendData(1, SENSOR_1_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorTwo, ip);
-    }
+  if (isSecondSensor()) {
+    sendDataForSensor(uniqId, ip, 1, SENSOR_1_DATA_FILE, sensorData);
   }
+}
+
+void loop() {
+
+  client.loop();
+
+  delay(4000);
+
 
   ESP.deepSleep(periodBetweenMeasure * 1e6);
 }

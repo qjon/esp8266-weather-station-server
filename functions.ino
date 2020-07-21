@@ -1,78 +1,3 @@
-void saveAndSendData(int sensor, String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
-  String json;
-
-  // Init Log operastions object
-  LogOperations list(dataFile, logItemsLength, itemsToSync);
-
-  // check if log file exist and create it if necessary
-  list.createLogFileIfNotExists();
-
-  // read log file
-  list.readFromFile();
-
-  float temp = dht.readTemperature(); // Gets the values of the temperature
-  float hum = dht.readHumidity(); // Gets the values of the humidity
-
-  list.addData(currentTimestamp, (String)temp, (String)hum);
-
-  // print data
-  list.printData();
-
-
-  // create JSON based on read data
-  json = list.toJSON(ip, sensor);
-
-  Serial.println(json);
-
-  HTTPClient http;
-  http.begin(SYNC_URL);
-  http.addHeader("Content-Type", "application/json");
-
-  int httpCode = http.POST(json);
-
-  if (httpCode >= 200 && httpCode < 300) {
-    String payload = http.getString();
-    list.parseSyncResponse(payload);
-  } else {
-    Serial.println("Wrong response: " + (String)httpCode);
-  }
-
-  list.saveFile();
-
-  http.end();
-}
-
-String saveAndGetDataMqtt(int sensor, String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
-  String json;
-  SavedData lastResult;
-
-  // Init Log operastions object
-  LogOperations list(dataFile, logItemsLength, itemsToSync);
-
-  // check if log file exist and create it if necessary
-  list.createLogFileIfNotExists();
-
-  // read log file
-  list.readFromFile();
-
-  float temp = dht.readTemperature(); // Gets the values of the temperature
-  float hum = dht.readHumidity(); // Gets the values of the humidity
-
-  lastResult = list.addData(currentTimestamp, (String)temp, (String)hum);
-
-  // print data
-  list.printData();
-
-
-  // create JSON based on read data
-  json = list.toJSON(ip, sensor);
-
-  Serial.println(json);
-
-  list.saveFile();
-
-  return lastResult.toMqttString(getDeviceUniqId(), sensor);
-}
 
 bool isSecondSensor() {
   return SENSOR_1_PIN != NULL;
@@ -90,6 +15,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   Serial.println();
   Serial.println("-----------------------");
+
+
+  String topicSubscribe = getDeviceTopic("cmd") + "/saved";
+
+  if ((String)topic == topicSubscribe) {
+    Serial.println("Get data");
+  }
 
 }
 
@@ -131,4 +63,68 @@ String getMqttBonjureMessage() {
 
 String getDeviceTopic(String topic) {
   return "ws/" + getDeviceUniqId() + "/" + topic;
+}
+
+String getDeviceTopic(String topic, int sensor) {
+  return "ws/" + getDeviceUniqId() + "_" + (String)sensor + "/" + topic;
+}
+
+void addSensorDataToLog(String dataFile, int logItemsLength, SavedData sensorData) {
+  String json;
+
+  // Init Log operastions object
+  LogOperations list(dataFile, logItemsLength);
+
+  // check if log file exist and create it if necessary
+  list.createLogFileIfNotExists();
+
+  // read log file
+  list.readFromFile();
+
+  list.addData(sensorData);
+
+  // print data
+  list.printData();
+  list.saveFile();
+}
+
+
+void sendDataForSensor(String uniqId, String ip, int sensor, String dataFile, SavedData sensorData) {
+  bool isSend = false;
+
+  // Init LOG FILE
+  LogOperations list(dataFile, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST);
+  list.readFromFile();
+  list.printData();
+
+  // Save data using MQTT or HTTP for first Sensor
+  if (IS_MQTT_SYNC) {
+    MqttDataTransport dataTransport(MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS, uniqId);
+    dataTransport.setClient(&client);
+
+    if (sensor == 0) {
+      dataTransport.sendInfo(ip, (String)SENSOR_0_TYPE, SENSOR_1_PIN ? (String)SENSOR_1_TYPE : "");
+    }
+    isSend = dataTransport.send(sensor, sensorData);
+
+    if (isSend) {
+      Serial.println("Data sent");
+      dataTransport.sendArchiveData(sensor, list);
+    }
+
+  } else {
+    HttpDataTransport dataTransport(ip, SYNC_URL);
+    isSend = dataTransport.send(sensor, sensorData);
+    if (isSend) {
+      Serial.println("Data sent");
+      dataTransport.sendArchiveData(sensor, list);
+    }
+  }
+  //
+  //  Add data to LOG File
+  if (!isSend) {
+    Serial.println("Data didn't send, try to save to LOG");
+    list.addData(sensorData);
+    list.saveFile();
+  }
 }
