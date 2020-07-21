@@ -12,8 +12,12 @@ class LogOperations {
 
   public:
     LogOperations(String fileName, int listSize, int itemsToSyncPerRequest);
-    void addData(int time, String temp, String hum);
+    LogOperations(String fileName, int listSize);
+    SavedData addData(int time, String temp, String hum);
+    SavedData addData(SavedData data);
     bool createLogFileIfNotExists();
+    SavedData* getList();
+    int getSize();
     void parseSyncResponse(String response);
     void printData();
     void readFromFile();
@@ -39,15 +43,38 @@ LogOperations::LogOperations(String fileName, int listSize, int itemsToSyncPerRe
   _readItemsFromFile = 0;
 }
 
-void LogOperations::addData(int time, String temp, String hum) {
-  SavedData s(time, temp, hum);
+LogOperations::LogOperations(String fileName, int listSize) {
+  _listLength = listSize;
+  _dataFileName = fileName;
+  _itemsToSyncPerRequest = 1;
+  _list = list;
+  _readItemsFromFile = 0;
+}
 
+SavedData LogOperations::addData(SavedData data) {
   if (_readItemsFromFile < _listLength) {
-    _list[_readItemsFromFile++] = s;
+    _list[_readItemsFromFile++] = data;
   } else {
     removeOldestDataItem();
-    _list[_listLength - 1] = s;
+    _list[_listLength - 1] = data;
   }
+
+  return data;
+}
+
+SavedData LogOperations::addData(int time, String temp, String hum) {
+  SavedData s(time, temp, hum);
+
+  return addData(s);
+}
+
+SavedData* LogOperations::getList() {
+  return _list;
+}
+
+
+int LogOperations::getSize() {
+  return _itemsToSyncPerRequest;
 }
 
 bool LogOperations::createLogFileIfNotExists() {

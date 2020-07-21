@@ -4,9 +4,11 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266HTTPClient.h>
+#include <PubSubClient.h>
 
 #include "saved_data.h"
 #include "log_operations.h"
+#include "data_transport.h"
 #include "configuration.h"
 
 // Initialize DHT sensor.
@@ -15,9 +17,16 @@ DHT sensorTwo(SENSOR_1_PIN, SENSOR_1_TYPE);
 
 // Initialize Time
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP, "0.pl.pool.ntp.org");
 
 float periodBetweenMeasure = 60 * 60 / TIMES_PER_HOURE;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+int lastMqttSendTimestamp = 0;
+
+int waitCounter = 10;
 
 void setup() {
   Serial.begin(115200);
@@ -49,6 +58,8 @@ void setup() {
   Serial.println("WiFi connected..!");
   Serial.print("Got IP: ");
   Serial.println(WiFi.localIP());
+  Serial.print("Got MAC: ");
+  Serial.println(WiFi.macAddress());
 
   timeClient.begin();
 
@@ -57,72 +68,56 @@ void setup() {
     return;
   }
 
+  Serial.println("before force");
+
   while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
 
+
+  //  Dir dir = SPIFFS.openDir("/");
+  //  while (dir.next()) {
+  //    Serial.print(dir.fileName());
+  //    File f = dir.openFile("r");
+  //    Serial.println(f.size());
+  //  }
+
+
   // add new item
   int sec = timeClient.getEpochTime();
 
+  Serial.println("time: " + (String)sec);
+
   String ip = WiFi.localIP().toString();
 
-  saveAndSendData(0, SENSOR_0_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorOne, ip);
+
+  // INIT values
+
+  float temp = sensorOne.readTemperature(); // Gets the values of the temperature
+  float hum = sensorOne.readHumidity(); // Gets the values of the humidity
+
+  SavedData sensorData(sec, (String)temp, (String)hum);
+
+  bool isSend = false;
+
+  // #1 - get sensor data
+
+  String uniqId = getDeviceUniqId();
+
+
+  sendDataForSensor(uniqId, ip, 0, SENSOR_0_DATA_FILE, sensorData);
 
   if (isSecondSensor()) {
-    saveAndSendData(1, SENSOR_1_DATA_FILE, LOG_ITEMS, ITEMS_TO_SYNC_PER_REQUEST, sec, sensorTwo, ip);
+    sendDataForSensor(uniqId, ip, 1, SENSOR_1_DATA_FILE, sensorData);
   }
-
-  ESP.deepSleep(periodBetweenMeasure * 1e6);
 }
-
 
 void loop() {
-}
 
-void saveAndSendData(int sensor, String dataFile, int logItemsLength, int itemsToSync, int currentTimestamp, DHT dht, String ip) {
-  String json;
+  client.loop();
 
-  // Init Log operastions object
-  LogOperations list(dataFile, logItemsLength, itemsToSync);
-
-  // check if log file exist and create it if necessary
-  list.createLogFileIfNotExists();
-
-  // read log file
-  list.readFromFile();
-
-  float temp = dht.readTemperature(); // Gets the values of the temperature
-  float hum = dht.readHumidity(); // Gets the values of the humidity
-
-  list.addData(currentTimestamp, (String)temp, (String)hum);
-
-  // print data
-  list.printData();
+  delay(4000);
 
 
-  // create JSON based on read data
-  json = list.toJSON(ip, sensor);
-
-  Serial.println(json);
-
-  HTTPClient http;
-  http.begin(SYNC_URL);
-  http.addHeader("Content-Type", "application/json");
-
-  int httpCode = http.POST(json);
-
-  if (httpCode >= 200 && httpCode < 300) {
-    String payload = http.getString();
-    list.parseSyncResponse(payload);
-  } else {
-    Serial.println("Wrong response: " + (String)httpCode);
-  }
-
-  list.saveFile();
-
-  http.end();
-}
-
-bool isSecondSensor() {
-  return SENSOR_1_PIN != NULL;
+  ESP.deepSleep(periodBetweenMeasure * 1e6);
 }
